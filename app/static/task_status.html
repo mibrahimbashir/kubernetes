@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Progress Monitor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #taskIdInput {
+            padding: 8px;
+            width: 300px;
+            margin-right: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #statusContainer {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            min-height: 100px;
+        }
+        .status {
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .pending {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .progress {
+            background-color: #cce5ff;
+            color: #004085;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .failure {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <h1>Task Progress Monitor</h1>
+    <div>
+        <input type="text" id="taskIdInput" placeholder="Enter Task ID">
+        <button onclick="connectToWebSocket()">Check Status</button>
+    </div>
+    
+    <div id="statusContainer">
+        <div id="statusMessage" class="status">Enter a task ID and click "Check Status" to begin</div>
+    </div>
+
+    <script>
+        let socket = null;
+        
+        function connectToWebSocket() {
+            const taskId = document.getElementById('taskIdInput').value.trim();
+            if (!taskId) {
+                updateStatusMessage('Please enter a Task ID', 'pending');
+                return;
+            }
+            
+            // Close previous connection if exists
+            if (socket) {
+                socket.close();
+            }
+            
+            // Reset status
+            updateStatusMessage(`Connecting to task ${taskId}...`, 'pending');
+            
+            // Connect to WebSocket
+            const protocol = 'ws:';
+            const host = '54.201.123.68';
+            const wsUrl = `${protocol}//${host}/ws/task-status/${taskId}`;
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function(e) {
+                updateStatusMessage(`Connected to task ${taskId} - waiting for updates...`, 'pending');
+            };
+            
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                updateStatus(data);
+            };
+            
+            socket.onclose = function(event) {
+                if (event.wasClean) {
+                    // Don't overwrite final status messages
+                    const currentStatus = document.getElementById('statusMessage').textContent;
+                    if (!currentStatus.includes('SUCCESS') && !currentStatus.includes('FAILURE')) {
+                        updateStatusMessage('Connection closed', 'pending');
+                    }
+                } else {
+                    updateStatusMessage('Connection lost', 'failure');
+                }
+            };
+            
+            socket.onerror = function(error) {
+                updateStatusMessage(`WebSocket error: ${error.message}`, 'failure');
+            };
+        }
+        
+        function updateStatus(data) {
+            let statusClass = 'pending';
+            let statusMessage = `Task ID: ${data.task_id} - Status: ${data.status}`;
+            
+            if (data.status === 'PROGRESS') {
+                statusClass = 'progress';
+                if (data.result && data.result.current && data.result.total) {
+                    const percentage = Math.round((data.result.current / data.result.total) * 100);
+                    statusMessage += ` - Progress: ${data.result.current} of ${data.result.total} (${percentage}%)`;
+                } else if (data.result) {
+                    statusMessage += ` - ${data.result}`;
+                }
+            } else if (data.status === 'SUCCESS') {
+                statusClass = 'success';
+                statusMessage += ` - Result: ${JSON.stringify(data.result)}`;
+            } else if (data.status === 'FAILURE') {
+                statusClass = 'failure';
+                statusMessage += ` - Error: ${data.message || 'Unknown error'}`;
+            } else {
+                // For other states like PENDING, STARTED, etc.
+                if (data.result) {
+                    statusMessage += ` - ${data.result}`;
+                }
+            }
+            
+            updateStatusMessage(statusMessage, statusClass);
+            
+            // Close connection if task is complete
+            if (data.status === 'SUCCESS' || data.status === 'FAILURE') {
+                if (socket) {
+                    socket.close();
+                }
+            }
+        }
+        
+        function updateStatusMessage(message, className) {
+            const statusElement = document.getElementById('statusMessage');
+            statusElement.className = `status ${className}`;
+            statusElement.textContent = message;
+        }
+    </script>
+</body>
+</html>

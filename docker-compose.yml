@@ -1,0 +1,81 @@
+version: "3.7"
+
+services:
+
+
+  fastapi:
+    build:
+      context: .
+      dockerfile: DockerfileWebApi
+    container_name: fastapi
+    command: bash -c "uvicorn main:app --host 0.0.0.0 --port 80 --reload --log-config logging_config.yaml"
+    volumes:
+      - ./SERVER/:/app/SERVER
+      - ./SERVER/:/var/log/fastapi
+    environment:
+      REDISSERVER: redis://redis_server:6379
+      C_FORCE_ROOT: "true"
+    ports:
+      - "80:80"
+    depends_on:
+      - redis_server
+    networks:
+      - npm-net
+
+
+
+  worker:
+    build:
+      dockerfile: DockerfileCelery
+      context: .
+    container_name: worker
+    volumes:
+      - ./SERVER/:/celery_tasks/SERVER
+      - ./SERVER/:/var/log/celery
+    environment:
+      REDISSERVER: redis://redis_server:6379
+      C_FORCE_ROOT: "true"
+      LOG_PATH: "/var/log/celery"
+      CELERYD_LOG_FILE: "/var/log/celery/worker.log"
+      CELERYD_LOG_LEVEL: "INFO"
+      CELERYD_TASK_LOG_FILE: "/var/log/celery/tasks.log"
+    depends_on:
+      - redis_server
+    networks:
+      - npm-net
+
+
+  redis_server:
+    container_name: redis_server
+    image: redis
+    volumes:
+      - ./SERVER/:/data
+    networks:
+      - npm-net
+
+
+
+  flower:
+    container_name: flower
+    image: mher/flower
+    command: ["celery", "--broker=redis://redis_server:6379", "flower", "--port=5555", "--logging=info", "--log_file=/var/log/flower/flower.log"]
+    volumes:
+      - ./SERVER/:/var/log/flower
+    ports:
+      - "5555:5555"
+    environment:
+      - FLOWER_BASIC_AUTH=admin:test@123
+      - LOG_PATH= "/var/log/flower"
+    depends_on:
+      - redis_server
+    networks:
+      - npm-net
+
+volumes:
+  redis_data:
+  fastapi_logs:
+  celery_logs:
+  flower_logs:
+
+networks:
+  npm-net:

@@ -1,0 +1,135 @@
+# =============================================================================
+# REDIS DEPLOYMENT - Defines the desired state for Redis pods
+# =============================================================================
+# A Deployment is a blueprint that tells Kubernetes:
+# - What container to run (image)
+# - How many copies (replicas) to run
+# - How to update them (rolling updates, recreate, etc.)
+#
+# Key Concepts:
+# - Pod: Smallest unit in K8s, wraps one or more containers
+# - Replica: Number of identical pods running
+# - Deployment: Manages pods, ensures desired state matches actual state
+#
+# If a pod crashes, Deployment automatically creates a new one!
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: async-tasks
+  labels:
+    app: redis
+    component: broker
+spec:
+  # Number of Redis instances (pods) to run
+  # For production, you'd use Redis Cluster or Sentinel for HA
+  replicas: 1
+
+  # Selector tells the Deployment which pods it manages
+  # It matches pods with these labels
+  selector:
+    matchLabels:
+      app: redis
+      component: broker
+
+  # Template defines what each pod looks like
+  template:
+    metadata:
+      labels:
+        app: redis
+        component: broker
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine  # Lightweight Redis image
+
+        # Port the container listens on
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+
+        # Resource requests and limits (CRITICAL for autoscaling!)
+        # Requests: Minimum guaranteed resources
+        # Limits: Maximum allowed resources
+        resources:
+          requests:
+            memory: "128Mi"  # Redis needs at least 128MB
+            cpu: "100m"      # 0.1 CPU core (1000m = 1 core)
+          limits:
+            memory: "512Mi"  # Don't let Redis use more than 512MB
+            cpu: "500m"      # Cap at 0.5 CPU core
+
+        # Volume mount for data persistence
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+
+        # Health checks - Kubernetes uses these to know if container is healthy
+        livenessProbe:   # Is the container alive?
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30  # Wait 30s after start before checking
+          periodSeconds: 10         # Check every 10s
+          timeoutSeconds: 5
+          failureThreshold: 3       # Restart after 3 failed checks
+
+        readinessProbe:  # Is the container ready to serve traffic?
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+      # Volumes - persistent storage for Redis data
+      volumes:
+      - name: redis-data
+        emptyDir: {}  # Temporary storage (lost if pod restarts)
+        # For production, use PersistentVolumeClaim (PVC) instead!
+
+---
+# =============================================================================
+# REDIS SERVICE - Network endpoint to reach Redis pods
+# =============================================================================
+# A Service is like a load balancer that gives pods a stable network address.
+# Without a Service, pods have random IPs that change when they restart!
+#
+# Types of Services:
+# - ClusterIP (default): Only accessible within the cluster
+# - NodePort: Exposes on each node's IP at a static port
+# - LoadBalancer: Creates an external load balancer (cloud provider)
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: async-tasks
+  labels:
+    app: redis
+    component: broker
+spec:
+  # ClusterIP = internal only (perfect for Redis - no external access needed)
+  type: ClusterIP
+
+  # Selector: Routes traffic to pods with these labels
+  selector:
+    app: redis
+    component: broker
+
+  # Ports to expose
+  ports:
+  - port: 6379        # Port the Service listens on
+    targetPort: 6379  # Port the container listens on
+    protocol: TCP
+    name: redis
+
+  # Session affinity (not needed for Redis, but useful for stateful apps)
+  # sessionAffinity: ClientIP

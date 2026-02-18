@@ -1,0 +1,15 @@
+FROM python:3.12
+
+RUN apt-get update
+RUN apt-get install ffmpeg libsm6 libxext6  -y
+
+COPY requirements_celery.txt /requirements.txt
+RUN pip install -r /requirements.txt
+RUN pip install eventlet==0.36.1
+
+COPY ./celery /celery_tasks
+WORKDIR /celery_tasks
+
+
+ENTRYPOINT celery -A tasks worker --loglevel=info --logfile=/var/log/celery/worker.log
+# ENTRYPOINT celery -A tasks worker --loglevel=info --pool=eventlet --logfile=/var/log/celery/worker.log

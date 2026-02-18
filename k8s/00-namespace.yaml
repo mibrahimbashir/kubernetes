@@ -1,0 +1,20 @@
+# =============================================================================
+# NAMESPACE - Logical grouping of resources
+# =============================================================================
+# Think of a namespace as a "folder" in Kubernetes where you organize related
+# resources. This keeps your async-task system separate from other applications.
+#
+# Why use namespaces?
+# - Isolation: Resources in different namespaces don't interfere
+# - Organization: Group related services together
+# - Resource quotas: Limit CPU/memory per namespace
+# - Access control: Different teams can have different permissions
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: async-tasks
+  labels:
+    app: fastapi-celery-system
+    environment: production

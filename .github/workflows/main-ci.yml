@@ -1,0 +1,44 @@
+name: CI Pipeline For Async Fastapi Redis Celery Flower App
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+
+  deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      -
+        name: Checkout the files
+        uses: actions/checkout@v2
+
+      - 
+        name: Read SSH Key from Local File
+        run: |
+          echo "::add-mask::$(cat .github/key.pem | base64 -w 0)"  # Masking the key for security
+          echo "SSH_KEY=$(cat .github/key.pem | base64 -w 0)" >> $GITHUB_ENV
+      -
+        name: Deploy to the server
+        uses: easingthemes/ssh-deploy@main
+        env:
+          SSH_PRIVATE_KEY: ${{ env.SSH_KEY }}
+          REMOTE_HOST: 18.209.106.10
+          REMOTE_USER: ubuntu
+          REMOTE_PORT: 22
+          TARGET: /home/ubuntu/code/Async-FastAPI-Redis-Celery-Flower
+          key: .github/key.pem
+      -
+        name: Run the docker containers
+        uses: appleboy/ssh-action@master
+        with:
+          key: ${{ env.SSH_KEY }}
+          host: 18.209.106.10
+          username: ubuntu
+          port: 22
+          script: |
+           cd /home/ubuntu/code/Async-FastAPI-Redis-Celery-Flower && sudo docker-compose down
+           sudo docker system prune --force
+           cd /home/ubuntu/code/Async-FastAPI-Redis-Celery-Flower && sudo docker-compose -f docker-compose.yml up --scale worker=1 --build -d

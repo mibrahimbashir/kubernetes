@@ -1,0 +1,116 @@
+# =============================================================================
+# RESOURCE QUOTA - Limit total resources in namespace
+# =============================================================================
+# ResourceQuota sets hard limits on the TOTAL resources in a namespace
+# This prevents runaway autoscaling from consuming your entire cluster!
+#
+# WHY USE THIS?
+# - Cost control: Prevent unlimited scaling
+# - Multi-tenancy: Share cluster with other teams
+# - Safety net: Avoid accidentally provisioning 100 pods
+#
+# Think of it like a budget for your namespace
+# =============================================================================
+
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: async-tasks-quota
+  namespace: async-tasks
+spec:
+  hard:
+    # ===== POD LIMITS =====
+    pods: "50"  # Maximum 50 pods total in this namespace
+    # With max 10 FastAPI + 20 Workers + 1 Redis + 1 Flower = 32 pods
+    # Still have headroom for other services
+
+    # ===== CPU LIMITS =====
+    requests.cpu: "20"    # Total CPU requests can't exceed 20 cores
+    limits.cpu: "40"      # Total CPU limits can't exceed 40 cores
+
+    # Example calculation:
+    # - 10 FastAPI pods * 200m = 2 cores
+    # - 20 Worker pods * 300m = 6 cores
+    # - Redis + Flower = 0.2 cores
+    # - Total = ~8.2 cores (well under 20)
+
+    # ===== MEMORY LIMITS =====
+    requests.memory: "50Gi"  # Total memory requests can't exceed 50GB
+    limits.memory: "100Gi"   # Total memory limits can't exceed 100GB
+
+    # Example calculation:
+    # - 10 FastAPI pods * 256Mi = 2.5Gi
+    # - 20 Worker pods * 512Mi = 10Gi
+    # - Redis + Flower = 0.5Gi
+    # - Total = ~13Gi (well under 50Gi)
+
+    # ===== STORAGE LIMITS =====
+    requests.storage: "50Gi"  # Total storage PVCs can't exceed 50GB
+    persistentvolumeclaims: "5"  # Maximum 5 PVCs
+
+    # ===== SERVICE LIMITS =====
+    services.loadbalancers: "3"  # Max 3 LoadBalancer services
+    # We have: FastAPI, Flower = 2 (still have 1 spare)
+
+# =============================================================================
+# LIMIT RANGE - Set default and max limits per pod
+# =============================================================================
+# LimitRange sets defaults for individual pods (not total namespace)
+# This ensures every pod has resource limits, even if you forget to set them!
+# =============================================================================
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: async-tasks-limits
+  namespace: async-tasks
+spec:
+  limits:
+
+  # ===== CONTAINER LIMITS =====
+  - type: Container
+    default:  # Default limits (if not specified in deployment)
+      cpu: "500m"
+      memory: "512Mi"
+    defaultRequest:  # Default requests (if not specified)
+      cpu: "100m"
+      memory: "128Mi"
+    max:  # Maximum allowed per container
+      cpu: "4"      # No container can use more than 4 cores
+      memory: "4Gi"  # No container can use more than 4GB
+    min:  # Minimum required per container
+      cpu: "50m"
+      memory: "64Mi"
+
+  # ===== POD LIMITS =====
+  - type: Pod
+    max:  # Maximum per pod (sum of all containers)
+      cpu: "4"
+      memory: "4Gi"
+
+  # ===== PVC LIMITS =====
+  - type: PersistentVolumeClaim
+    max:
+      storage: "20Gi"  # No single PVC can exceed 20GB
+    min:
+      storage: "1Gi"   # Minimum 1GB per PVC
+
+# =============================================================================
+# HOW QUOTAS AND LIMITS WORK TOGETHER:
+#
+# ResourceQuota = Namespace-level budget
+# LimitRange = Per-pod constraints
+#
+# Example:
+# 1. You deploy a pod without resource requests
+# 2. LimitRange applies defaults (100m CPU, 128Mi memory)
+# 3. Kubernetes checks if namespace quota allows it
+# 4. If total namespace usage + new pod < quota → pod created!
+# 5. If quota exceeded → pod creation fails
+#
+# This prevents:
+# - Accidentally creating unlimited pods
+# - Pods consuming all cluster resources
+# - Runaway autoscaling
+# =============================================================================

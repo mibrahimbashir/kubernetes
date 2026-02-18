@@ -1,0 +1,59 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+*.egg-info/
+
+# Environments
+.env
+.venv
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+
+# Documentation (except README)
+*.md
+!README.md
+ARCHITECTURE.md
+KUBERNETES*.md
+START-HERE.md
+
+# Kubernetes manifests
+k8s/
+
+# Logs
+*.log
+SERVER/
+
+# Tests
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker
+docker-compose*.yml
+local_env_*.sh
+ssl-docker-compose.yml
+
+# Claude Code
+.claude/

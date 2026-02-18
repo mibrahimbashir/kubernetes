@@ -1,0 +1,125 @@
+# =============================================================================
+# CELERY WORKER DEPLOYMENT - Background task processors with autoscaling
+# =============================================================================
+# Workers pull tasks from Redis queue and execute them.
+# This is WHERE THE MAGIC HAPPENS - workers autoscale based on:
+# - CPU usage (busy workers = more workers needed)
+# - Memory usage (memory-intensive tasks)
+# - Custom metrics (queue length - advanced, covered later)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: async-tasks
+  labels:
+    app: celery-worker
+    component: worker
+spec:
+  # Start with 2 workers
+  # HPA will scale this between 2 and 10 based on load!
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: celery-worker
+      component: worker
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2        # Can add 2 extra workers quickly during scale-up
+      maxUnavailable: 1  # Can have 1 worker down during update
+
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+        component: worker
+    spec:
+      containers:
+      - name: celery-worker
+        # TODO: Replace with your actual Docker image
+        # Build: docker build -f DockerfileCelery -t your-registry/celery:v1 .
+        image: celery-worker:v1
+        imagePullPolicy: Never
+
+        # Environment variables
+        env:
+        - name: REDISSERVER
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: REDIS_SERVER
+        - name: C_FORCE_ROOT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: C_FORCE_ROOT
+        - name: LOG_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: LOG_PATH
+        - name: CELERYD_LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CELERYD_LOG_LEVEL
+
+        # CRITICAL: Resource configuration for autoscaling
+        # Workers doing image processing need more resources!
+        resources:
+          requests:
+            memory: "512Mi"   # OpenCV needs decent memory
+            cpu: "300m"       # 0.3 CPU cores minimum
+          limits:
+            memory: "2Gi"     # Max 2GB per worker
+            cpu: "2000m"      # Max 2 CPU cores (for heavy processing)
+
+        # Volume mounts for file processing
+        volumeMounts:
+        - name: shared-data
+          mountPath: /celery_tasks/SERVER
+        - name: logs
+          mountPath: /var/log/celery
+
+        # Health check - use celery inspect
+        # Note: Celery workers don't expose HTTP endpoints by default
+        # So we use a command-based health check
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "celery -A tasks inspect ping -d celery@$HOSTNAME | grep -q OK"
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        # Readiness probe - check if worker can accept tasks
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "celery -A tasks inspect active -d celery@$HOSTNAME"
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: shared-data-pvc
+      - name: logs
+        emptyDir: {}
+
+---
+# =============================================================================
+# NOTE: Workers don't need a Service (they don't receive incoming traffic)
+# They pull work from Redis queue, so no load balancer needed!
+# =============================================================================

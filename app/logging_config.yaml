@@ -1,0 +1,35 @@
+version: 1
+formatters:
+  default:
+    format: "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+
+handlers:
+  file:
+    class: logging.FileHandler
+    formatter: default
+    filename: /var/log/fastapi/fastapi.log
+    mode: a
+
+  console:
+    class: logging.StreamHandler
+    formatter: default
+
+loggers:
+  uvicorn:
+    level: INFO
+    handlers: [file, console]
+    propagate: False
+
+  uvicorn.error:
+    level: INFO
+    handlers: [file, console]
+    propagate: False
+
+  uvicorn.access:
+    level: INFO
+    handlers: [file, console]
+    propagate: False
+
+root:
+  level: INFO
+  handlers: [file, console]

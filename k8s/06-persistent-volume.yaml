@@ -1,0 +1,61 @@
+# =============================================================================
+# PERSISTENT VOLUME CLAIM (PVC) - Shared storage for file processing
+# =============================================================================
+# PVC requests storage from your cluster. Think of it like requesting disk space.
+#
+# Why do we need this?
+# - FastAPI writes uploaded files to /app/SERVER/input/
+# - Celery workers read from /app/SERVER/input/ and write to /app/SERVER/output/
+# - Without shared storage, each pod has its own isolated filesystem!
+#
+# Storage Classes (depends on your cluster):
+# - Local (minikube): hostPath, local-path
+# - AWS: gp2, gp3 (EBS volumes)
+# - GCP: standard, ssd
+# - Azure: managed-premium, managed-standard
+#
+# For production: Use ReadWriteMany (RWX) storage like NFS or cloud file storage
+# =============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-data-pvc
+  namespace: async-tasks
+  labels:
+    app: fastapi-celery-system
+spec:
+  # Access modes:
+  # - ReadWriteOnce (RWO): One node can mount as read-write
+  # - ReadOnlyMany (ROX): Many nodes can mount as read-only
+  # - ReadWriteMany (RWX): Many nodes can mount as read-write (BEST for our case!)
+  accessModes:
+    - ReadWriteMany  # Multiple pods across nodes can read/write
+
+  # Storage class (depends on your cluster setup)
+  # Leave empty to use default storage class
+  # storageClassName: ""  # Use default
+  # storageClassName: nfs-client  # Example: NFS provisioner
+  # storageClassName: efs-sc  # Example: AWS EFS
+
+  # How much storage to request
+  resources:
+    requests:
+      storage: 10Gi  # 10GB for uploaded/processed files
+
+  # Volume mode
+  volumeMode: Filesystem
+
+# =============================================================================
+# NOTE FOR LOCAL TESTING (minikube/kind):
+# If ReadWriteMany is not available, you have two options:
+#
+# Option 1: Use ReadWriteOnce and node affinity
+# - Ensures all pods run on same node (not ideal for production)
+#
+# Option 2: Use an NFS provisioner
+# - Install: kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/deploy/example/nfs-provisioner/nfs-server.yaml
+#
+# Option 3: Use a cloud-based file storage (production)
+# - AWS EFS, Google Cloud Filestore, Azure Files
+# =============================================================================

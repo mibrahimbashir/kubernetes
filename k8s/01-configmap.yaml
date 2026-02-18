@@ -1,0 +1,38 @@
+# =============================================================================
+# CONFIGMAP - Store configuration data as key-value pairs
+# =============================================================================
+# ConfigMaps hold non-sensitive configuration that your apps need.
+# Think of it like a .env file, but managed by Kubernetes.
+#
+# Why ConfigMaps?
+# - Centralized config: Update once, all pods get the new values
+# - Decoupling: Separate config from container images
+# - Flexibility: Change settings without rebuilding Docker images
+#
+# NOTE: For sensitive data (passwords, API keys), use Secrets instead!
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: async-tasks
+  labels:
+    app: fastapi-celery-system
+data:
+  # Redis connection string - used by both FastAPI and Celery
+  # Format: redis://<service-name>:<port>
+  # The service-name "redis-service" will be created later
+  REDIS_SERVER: "redis://redis-service:6379"
+
+  # Celery configuration
+  C_FORCE_ROOT: "true"
+
+  # Logging paths
+  LOG_PATH: "/var/log"
+  CELERYD_LOG_LEVEL: "INFO"
+
+  # Worker heartbeat settings (in seconds)
+  # Heartbeat = periodic signal that worker is alive
+  WORKER_HEARTBEAT: "60"
+  BROKER_HEARTBEAT: "120"

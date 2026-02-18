@@ -1,0 +1,100 @@
+# =============================================================================
+# FLOWER DEPLOYMENT - Celery monitoring dashboard
+# =============================================================================
+# Flower provides a web UI to monitor your Celery workers
+# We don't need autoscaling for this (it's just a monitoring tool)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flower
+  namespace: async-tasks
+  labels:
+    app: flower
+    component: monitoring
+spec:
+  replicas: 1  # One instance is enough for monitoring
+
+  selector:
+    matchLabels:
+      app: flower
+      component: monitoring
+
+  template:
+    metadata:
+      labels:
+        app: flower
+        component: monitoring
+    spec:
+      containers:
+      - name: flower
+        image: mher/flower:latest
+
+        # Command to start Flower
+        command:
+          - celery
+        args:
+          - --broker=redis://redis-service:6379/0
+          - flower
+          - --port=5555
+          - --logging=info
+
+        ports:
+        - containerPort: 5555
+          name: http
+          protocol: TCP
+
+        # Environment for basic auth
+        env:
+        - name: FLOWER_BASIC_AUTH
+          value: "admin:test@123"  # In production, use Secrets!
+
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5555
+          initialDelaySeconds: 30
+          periodSeconds: 10
+
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5555
+          initialDelaySeconds: 10
+          periodSeconds: 5
+
+---
+# =============================================================================
+# FLOWER SERVICE - Expose Flower dashboard
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: flower-service
+  namespace: async-tasks
+  labels:
+    app: flower
+    component: monitoring
+spec:
+  type: LoadBalancer  # Or NodePort for local testing
+
+  selector:
+    app: flower
+    component: monitoring
+
+  ports:
+  - port: 5555
+    targetPort: 5555
+    protocol: TCP
+    name: http

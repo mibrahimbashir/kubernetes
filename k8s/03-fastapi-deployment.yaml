@@ -1,0 +1,138 @@
+# =============================================================================
+# FASTAPI DEPLOYMENT - Web API with Autoscaling
+# =============================================================================
+# This is your main REST API that accepts HTTP requests.
+# We'll configure it to autoscale based on CPU/Memory usage!
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi
+  namespace: async-tasks
+  labels:
+    app: fastapi
+    component: webapi
+spec:
+  # Start with 2 replicas (pods)
+  # HPA (HorizontalPodAutoscaler) will adjust this number automatically!
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: fastapi
+      component: webapi
+
+  # Update strategy - how to roll out new versions
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1        # Can have 1 extra pod during update
+      maxUnavailable: 0  # Keep all pods running (zero downtime!)
+
+  template:
+    metadata:
+      labels:
+        app: fastapi
+        component: webapi
+    spec:
+      containers:
+      - name: fastapi
+        # TODO: Replace with your actual Docker image
+        # Build: docker build -f DockerfileWebApi -t your-registry/fastapi:v1 .
+        # Push: docker push your-registry/fastapi:v1
+        image: fastapi-celery:v1
+        imagePullPolicy: Never  # Always pull latest image
+
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+
+        # Environment variables from ConfigMap
+        env:
+        - name: REDISSERVER
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: REDIS_SERVER
+        - name: C_FORCE_ROOT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: C_FORCE_ROOT
+
+        # CRITICAL: Resources must be defined for autoscaling!
+        # HPA uses these values to calculate scaling metrics
+        resources:
+          requests:
+            memory: "256Mi"  # Each pod needs 256MB minimum
+            cpu: "200m"      # Each pod needs 0.2 CPU cores minimum
+          limits:
+            memory: "1Gi"    # Don't exceed 1GB per pod
+            cpu: "1000m"     # Cap at 1 full CPU core
+
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health/celery  # Your health check endpoint
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health/celery
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        # Volume mounts for shared files
+        volumeMounts:
+        - name: shared-data
+          mountPath: /app/SERVER
+
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: shared-data-pvc  # Defined in separate file
+
+---
+# =============================================================================
+# FASTAPI SERVICE - Expose FastAPI to the world
+# =============================================================================
+# This creates a load balancer that distributes traffic across FastAPI pods
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-service
+  namespace: async-tasks
+  labels:
+    app: fastapi
+    component: webapi
+spec:
+  # LoadBalancer = external access (cloud providers create real LB)
+  # For local testing, use NodePort instead
+  type: LoadBalancer
+
+  selector:
+    app: fastapi
+    component: webapi
+
+  ports:
+  - port: 80          # External port
+    targetPort: 80    # Container port
+    protocol: TCP
+    name: http
+
+  # Session affinity ensures WebSocket connections stick to same pod
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600  # 1 hour sticky session
