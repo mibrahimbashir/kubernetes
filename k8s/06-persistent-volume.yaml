@@ -29,14 +29,13 @@ spec:
   # - ReadWriteOnce (RWO): One node can mount as read-write
   # - ReadOnlyMany (ROX): Many nodes can mount as read-only
   # - ReadWriteMany (RWX): Many nodes can mount as read-write (BEST for our case!)
+  # For single-node EC2 testing: ReadWriteOnce is sufficient (all pods on same node)
+  # For multi-node production: switch to ReadWriteMany with EFS (storageClassName: efs-sc)
   accessModes:
-    - ReadWriteMany  # Multiple pods across nodes can read/write
+    - ReadWriteOnce
 
-  # Storage class (depends on your cluster setup)
-  # Leave empty to use default storage class
-  # storageClassName: ""  # Use default
-  # storageClassName: nfs-client  # Example: NFS provisioner
-  # storageClassName: efs-sc  # Example: AWS EFS
+  # k3s on EC2 uses "local-path" storage class by default (backed by hostPath)
+  storageClassName: local-path
 
   # How much storage to request
   resources:

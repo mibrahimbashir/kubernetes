@@ -38,11 +38,8 @@ spec:
     spec:
       containers:
       - name: fastapi
-        # TODO: Replace with your actual Docker image
-        # Build: docker build -f DockerfileWebApi -t your-registry/fastapi:v1 .
-        # Push: docker push your-registry/fastapi:v1
-        image: fastapi-celery:v1
-        imagePullPolicy: Never  # Always pull latest image
+        image: chemsa/fastapi-celery:v1
+        imagePullPolicy: Always
 
         ports:
         - containerPort: 80
@@ -66,30 +63,30 @@ spec:
         # HPA uses these values to calculate scaling metrics
         resources:
           requests:
-            memory: "256Mi"  # Each pod needs 256MB minimum
-            cpu: "200m"      # Each pod needs 0.2 CPU cores minimum
+            memory: "128Mi"
+            cpu: "100m"
           limits:
-            memory: "1Gi"    # Don't exceed 1GB per pod
-            cpu: "1000m"     # Cap at 1 full CPU core
+            memory: "512Mi"
+            cpu: "500m"
 
         # Health checks
         livenessProbe:
           httpGet:
-            path: /health/celery  # Your health check endpoint
+            path: /health/celery
             port: 80
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+          initialDelaySeconds: 60   # give celery workers time to be ready
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 5
 
         readinessProbe:
           httpGet:
             path: /health/celery
             port: 80
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 5
 
         # Volume mounts for shared files
         volumeMounts:
@@ -98,8 +95,7 @@ spec:
 
       volumes:
       - name: shared-data
-        persistentVolumeClaim:
-          claimName: shared-data-pvc  # Defined in separate file
+        emptyDir: {}
 
 ---
 # =============================================================================
@@ -117,22 +113,16 @@ metadata:
     app: fastapi
     component: webapi
 spec:
-  # LoadBalancer = external access (cloud providers create real LB)
-  # For local testing, use NodePort instead
-  type: LoadBalancer
+  # NodePort = access via EC2_PUBLIC_IP:30080 (no AWS ELB needed for testing)
+  type: NodePort
 
   selector:
     app: fastapi
     component: webapi
 
   ports:
-  - port: 80          # External port
-    targetPort: 80    # Container port
+  - port: 80
+    targetPort: 80
+    nodePort: 30080    # Access at http://<EC2_PUBLIC_IP>:30080
     protocol: TCP
     name: http
-
-  # Session affinity ensures WebSocket connections stick to same pod
-  sessionAffinity: ClientIP
-  sessionAffinityConfig:
-    clientIP:
-      timeoutSeconds: 3600  # 1 hour sticky session

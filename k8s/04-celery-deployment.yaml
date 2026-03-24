@@ -40,10 +40,8 @@ spec:
     spec:
       containers:
       - name: celery-worker
-        # TODO: Replace with your actual Docker image
-        # Build: docker build -f DockerfileCelery -t your-registry/celery:v1 .
-        image: celery-worker:v1
-        imagePullPolicy: Never
+        image: chemsa/celery-worker:v1
+        imagePullPolicy: Always
 
         # Environment variables
         env:
@@ -72,11 +70,11 @@ spec:
         # Workers doing image processing need more resources!
         resources:
           requests:
-            memory: "512Mi"   # OpenCV needs decent memory
-            cpu: "300m"       # 0.3 CPU cores minimum
+            memory: "256Mi"
+            cpu: "150m"
           limits:
-            memory: "2Gi"     # Max 2GB per worker
-            cpu: "2000m"      # Max 2 CPU cores (for heavy processing)
+            memory: "1Gi"
+            cpu: "1000m"
 
         # Volume mounts for file processing
         volumeMounts:
@@ -113,8 +111,7 @@ spec:
 
       volumes:
       - name: shared-data
-        persistentVolumeClaim:
-          claimName: shared-data-pvc
+        emptyDir: {}
       - name: logs
         emptyDir: {}
 

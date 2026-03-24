@@ -29,13 +29,10 @@ spec:
     spec:
       containers:
       - name: flower
-        image: mher/flower:latest
+        image: mher/flower:2.0.1
 
-        # Command to start Flower
-        command:
-          - celery
+        command: ["celery"]
         args:
-          - --broker=redis://redis-service:6379/0
           - flower
           - --port=5555
           - --logging=info
@@ -45,10 +42,13 @@ spec:
           name: http
           protocol: TCP
 
-        # Environment for basic auth
         env:
+        - name: CELERY_BROKER_URL
+          value: "redis://redis-service:6379/0"
+        - name: FLOWER_BROKER_API
+          value: "redis://redis-service:6379/0"
         - name: FLOWER_BASIC_AUTH
-          value: "admin:test@123"  # In production, use Secrets!
+          value: "admin:test@123"
 
         resources:
           requests:
@@ -63,15 +63,19 @@ spec:
           httpGet:
             path: /
             port: 5555
-          initialDelaySeconds: 30
-          periodSeconds: 10
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 5
 
         readinessProbe:
           httpGet:
             path: /
             port: 5555
-          initialDelaySeconds: 10
-          periodSeconds: 5
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 5
 
 ---
 # =============================================================================
@@ -87,7 +91,8 @@ metadata:
     app: flower
     component: monitoring
 spec:
-  type: LoadBalancer  # Or NodePort for local testing
+  # NodePort = access via EC2_PUBLIC_IP:30555 (no AWS ELB needed for testing)
+  type: NodePort
 
   selector:
     app: flower
@@ -96,5 +101,6 @@ spec:
   ports:
   - port: 5555
     targetPort: 5555
+    nodePort: 30555    # Access at http://<EC2_PUBLIC_IP>:30555
     protocol: TCP
     name: http
