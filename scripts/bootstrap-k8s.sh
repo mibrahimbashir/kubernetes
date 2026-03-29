@@ -32,12 +32,11 @@ log_error()   { echo -e "${RED}[ERROR]${NC}   $1"; }
 # ─────────────────────────────────────────────
 K3S_VERSION="v1.29.3+k3s1"           # Pin to a specific version for reproducibility
 METRICS_SERVER_VERSION="v0.7.1"      # Pin metrics-server version
-APP_NAMESPACE="myapp"                # The Kubernetes namespace for your application
 
 # ─────────────────────────────────────────────
 # STEP 1: System update
 # ─────────────────────────────────────────────
-log_info "Step 1/7: Updating system packages..."
+log_info "Step 1/6: Updating system packages..."
 
 sudo apt-get update -q
 # -y = yes to all prompts
@@ -52,7 +51,7 @@ log_success "System packages updated."
 # ─────────────────────────────────────────────
 # STEP 2: Install k3s (if not already installed)
 # ─────────────────────────────────────────────
-log_info "Step 2/7: Checking k3s installation..."
+log_info "Step 2/6: Checking k3s installation..."
 
 if command -v k3s &> /dev/null; then
     # k3s binary exists — check if the service is actually running
@@ -95,7 +94,7 @@ fi
 # ─────────────────────────────────────────────
 # STEP 3: Configure kubectl for the current user
 # ─────────────────────────────────────────────
-log_info "Step 3/7: Configuring kubectl..."
+log_info "Step 3/6: Configuring kubectl..."
 
 # Create .kube directory if it doesn't exist (-p = no error if already exists)
 mkdir -p ~/.kube
@@ -123,7 +122,7 @@ fi
 # ─────────────────────────────────────────────
 # STEP 4: Wait for the node to be Ready
 # ─────────────────────────────────────────────
-log_info "Step 4/7: Waiting for Kubernetes node to be Ready..."
+log_info "Step 4/6: Waiting for Kubernetes node to be Ready..."
 
 # Give k3s a few seconds to register the node before we try to wait on it
 log_info "Giving k3s 15 seconds to register the node..."
@@ -142,7 +141,7 @@ kubectl get nodes -o wide    # Print node info for confirmation
 # STEP 5: Install Metrics Server
 # (Required for HPA — Horizontal Pod Autoscaling)
 # ─────────────────────────────────────────────
-log_info "Step 5/7: Installing Metrics Server ${METRICS_SERVER_VERSION}..."
+log_info "Step 5/6: Installing Metrics Server ${METRICS_SERVER_VERSION}..."
 
 # Check if metrics-server is already deployed
 if kubectl get deployment metrics-server -n kube-system &> /dev/null; then
@@ -178,7 +177,7 @@ fi
 # STEP 6: Verify Traefik Ingress Controller
 # (k3s ships Traefik built-in — we just confirm it's running)
 # ─────────────────────────────────────────────
-log_info "Step 6/7: Verifying Traefik Ingress Controller..."
+log_info "Step 6/6: Verifying Traefik Ingress Controller..."
 
 # Wait for Traefik to be ready (k3s installs it, we just wait)
 kubectl wait deployment traefik \
@@ -188,19 +187,6 @@ kubectl wait deployment traefik \
 
 log_success "Traefik Ingress Controller is running."
 kubectl get pods -n kube-system -l app.kubernetes.io/name=traefik
-
-# ─────────────────────────────────────────────
-# STEP 7: Create the application namespace
-# ─────────────────────────────────────────────
-log_info "Step 7/7: Creating application namespace '${APP_NAMESPACE}'..."
-
-# --dry-run=client -o yaml | apply is the idempotent pattern:
-# It generates what the resource WOULD look like, then applies it.
-# This works whether the namespace exists or not — no "already exists" errors.
-kubectl create namespace "${APP_NAMESPACE}" \
-    --dry-run=client -o yaml | kubectl apply -f -
-
-log_success "Namespace '${APP_NAMESPACE}' is ready."
 
 # ─────────────────────────────────────────────
 # FINAL: Print cluster summary
@@ -218,9 +204,6 @@ kubectl get pods -n kube-system
 echo ""
 echo "── Metrics (wait ~60s after bootstrap for data) ───────"
 kubectl top nodes || log_warn "Metrics not yet available — wait 60s and run: kubectl top nodes"
-echo ""
-echo "── App Namespace ───────────────────────────────────────"
-kubectl get all -n "${APP_NAMESPACE}"
 echo ""
 echo "════════════════════════════════════════════════════════"
 log_success "Your cluster is ready to receive deployments!"
