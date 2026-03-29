@@ -1,0 +1,45 @@
+# .github/workflows/bootstrap.yml
+
+name: Bootstrap Kubernetes on EC2
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: >
+          Type "yes-bootstrap" to confirm you want to run the cluster setup.
+          WARNING: Only run this on a fresh EC2 or after a full teardown.
+        required: true
+        default: ""
+
+jobs:
+  bootstrap:
+    name: Install k3s + Metrics Server on EC2
+    runs-on: ubuntu-latest
+
+    if: ${{ github.event.inputs.confirm == 'yes-bootstrap' }}
+
+    steps:
+      - name: Confirm intent
+        run: |
+          echo "Bootstrap confirmed. Proceeding with cluster setup."
+          echo "Target EC2: ${{ secrets.EC2_HOST }}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key.pem
+          chmod 600 ~/.ssh/ec2_key.pem
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Copy and run bootstrap script on EC2
+        run: |
+          scp -i ~/.ssh/ec2_key.pem \
+            scripts/bootstrap-k8s.sh \
+            ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/bootstrap-k8s.sh
+
+          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} \
+            "chmod +x ~/bootstrap-k8s.sh && ~/bootstrap-k8s.sh"
