@@ -177,9 +177,27 @@ fi
 # STEP 6: Verify Traefik Ingress Controller
 # (k3s ships Traefik built-in — we just confirm it's running)
 # ─────────────────────────────────────────────
+
 log_info "Step 6/6: Verifying Traefik Ingress Controller..."
 
-# Wait for Traefik to be ready (k3s installs it, we just wait)
+# Wait for Traefik deployment to be CREATED first (k3s deploys it in the background)
+# This can take up to 2 minutes on a fresh install
+log_info "Waiting for Traefik deployment to be created (up to 2 minutes)..."
+for i in $(seq 1 24); do
+    if kubectl get deployment traefik -n kube-system &> /dev/null; then
+        log_success "Traefik deployment found."
+        break
+    fi
+    if [ $i -eq 24 ]; then
+        log_error "Traefik deployment was not created within 2 minutes."
+        kubectl get pods -n kube-system
+        exit 1
+    fi
+    log_info "Traefik not yet created... attempt $i/24"
+    sleep 5
+done
+
+# Now wait for it to be ready
 kubectl wait deployment traefik \
     -n kube-system \
     --for=condition=Available \
