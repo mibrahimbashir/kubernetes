@@ -125,6 +125,10 @@ fi
 # ─────────────────────────────────────────────
 log_info "Step 4/7: Waiting for Kubernetes node to be Ready..."
 
+# Give k3s a few seconds to register the node before we try to wait on it
+log_info "Giving k3s 15 seconds to register the node..."
+sleep 15
+
 # kubectl wait blocks until the condition is met or timeout is reached
 kubectl wait node \
     --all \
