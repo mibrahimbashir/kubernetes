@@ -38,7 +38,7 @@ spec:
     spec:
       containers:
       - name: fastapi
-        image: chemsa/fastapi-celery:v1
+        image: mibrahimbashir/fastapi-celery:v1
         imagePullPolicy: Always
 
         ports:
@@ -69,41 +69,40 @@ spec:
             memory: "512Mi"
             cpu: "500m"
 
-        # Health checks
+        # Liveness: is the process alive? Use the simple /health endpoint.
+        # This should NEVER depend on external services like Celery.
+        # If Celery is down, we don't want Kubernetes restarting FastAPI pods.
         livenessProbe:
           httpGet:
-            path: /health/celery
+            path: /health
             port: 80
-          initialDelaySeconds: 60   # give celery workers time to be ready
+          initialDelaySeconds: 30
           periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
 
+        # Readiness: is this pod ready to serve traffic?
+        # /health/celery checks worker connectivity — if workers are down,
+        # stop sending traffic to this pod until they recover.
         readinessProbe:
           httpGet:
             path: /health/celery
             port: 80
-          initialDelaySeconds: 30
+          initialDelaySeconds: 60
           periodSeconds: 10
           timeoutSeconds: 10
           failureThreshold: 5
 
-        # Volume mounts for shared files
         volumeMounts:
         - name: shared-data
-          mountPath: /app/SERVER
+          mountPath: /app/SERVER  # Code writes to ./SERVER/input/ relative to /app
 
       volumes:
       - name: shared-data
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: shared-data-pvc  # Shared with celery-worker pods
 
 ---
-# =============================================================================
-# FASTAPI SERVICE - Expose FastAPI to the world
-# =============================================================================
-# This creates a load balancer that distributes traffic across FastAPI pods
-# =============================================================================
-
 apiVersion: v1
 kind: Service
 metadata:
@@ -113,16 +112,13 @@ metadata:
     app: fastapi
     component: webapi
 spec:
-  # NodePort = access via EC2_PUBLIC_IP:30080 (no AWS ELB needed for testing)
   type: NodePort
-
   selector:
     app: fastapi
     component: webapi
-
   ports:
   - port: 80
     targetPort: 80
-    nodePort: 30080    # Access at http://<EC2_PUBLIC_IP>:30080
+    nodePort: 30080
     protocol: TCP
     name: http

@@ -1,15 +1,3 @@
-# =============================================================================
-# HORIZONTAL POD AUTOSCALER (HPA) - Celery Worker Autoscaling
-# =============================================================================
-# Workers process background tasks (image processing, long computations)
-# They need different scaling thresholds than the API!
-#
-# WHY DIFFERENT THRESHOLDS?
-# - Workers do CPU/memory intensive work (image processing with OpenCV)
-# - We want to scale MORE AGGRESSIVELY to handle task backlog
-# - Better to have idle workers than a huge task queue!
-# =============================================================================
-
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -23,98 +11,49 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: celery-worker
-
-  # Scaling boundaries
-  minReplicas: 2    # Always have 2 workers ready
-  maxReplicas: 20   # Can scale up to 20 workers! (higher than API)
-
-  # Metrics for scaling
+  minReplicas: 2
+  maxReplicas: 10  # Capped at 10 for a single node.
+                   # 10 workers * 256Mi = 2.5Gi requests, which is realistic.
+                   # Raise this only if your instance has headroom confirmed via
+                   # kubectl top nodes.
   metrics:
-
-  # ===== CPU-BASED SCALING (Lower threshold!) =====
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 60  # Scale at 60% (more aggressive than API)
+        averageUtilization: 60
+        # Each pod requests 150m CPU.
+        # Scale up when average usage exceeds 90m per pod.
+        # Lower threshold than FastAPI because OpenCV tasks spike fast.
 
-    # Why 60% instead of 70%?
-    # - Workers doing image processing can spike to 100% quickly
-    # - We want to scale BEFORE they get overloaded
-    # - Better to have spare capacity for task bursts
-
-  # ===== MEMORY-BASED SCALING =====
   - type: Resource
     resource:
       name: memory
       target:
         type: Utilization
-        averageUtilization: 75  # Scale at 75% memory usage
+        averageUtilization: 75
+        # Each pod requests 256Mi memory.
+        # Scale up when average usage exceeds ~192Mi per pod.
 
-    # Workers process images with OpenCV (memory-intensive!)
-    # - Each worker requests 512Mi
-    # - OpenCV can use a lot of memory for large images
-    # - Scale before hitting the 2Gi limit
-
-  # ===== SCALING BEHAVIOR =====
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 30  # Scale up faster than API!
+      stabilizationWindowSeconds: 30
       policies:
       - type: Percent
-        value: 100       # Can DOUBLE the workers quickly
+        value: 100
         periodSeconds: 30
       - type: Pods
-        value: 4         # Or add 4 workers at once
+        value: 4
         periodSeconds: 30
       selectPolicy: Max
-
-      # Why aggressive scale-up?
-      # - Task queue can grow quickly (users uploading many files)
-      # - Better to over-provision workers than have users wait
-      # - Cloud costs are worth it for good user experience!
-
     scaleDown:
-      stabilizationWindowSeconds: 600  # Wait 10 minutes before scaling down
+      stabilizationWindowSeconds: 600
       policies:
       - type: Percent
-        value: 25        # Remove only 25% of workers at a time
+        value: 25
         periodSeconds: 120
       - type: Pods
-        value: 2         # Or remove max 2 workers
+        value: 2
         periodSeconds: 120
       selectPolicy: Min
-
-      # Why slow scale-down?
-      # - Tasks might be in-progress (don't kill workers prematurely)
-      # - Traffic patterns can be bursty
-      # - Keep workers around longer "just in case"
-
-# =============================================================================
-# ADVANCED: Custom Metrics for Queue-Based Scaling (Optional)
-# =============================================================================
-# For production, you might want to scale based on Redis queue length!
-#
-# Example: Scale when there are more than 10 tasks per worker
-#
-# This requires:
-# 1. Prometheus to scrape Celery metrics
-# 2. Prometheus Adapter to expose custom metrics to Kubernetes
-# 3. Custom metric: celery_queue_length / num_workers
-#
-# Configuration would look like:
-# ```yaml
-# metrics:
-# - type: External
-#   external:
-#     metric:
-#       name: celery_queue_length_per_worker
-#     target:
-#       type: AverageValue
-#       averageValue: "10"  # Scale if queue has >10 tasks per worker
-# ```
-#
-# This is ADVANCED but gives you much better scaling behavior!
-# CPU/Memory is good, but queue length is the TRUE indicator of worker load.
-# =============================================================================

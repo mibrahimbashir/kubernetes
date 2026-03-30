@@ -1,24 +1,3 @@
-# =============================================================================
-# HORIZONTAL POD AUTOSCALER (HPA) - FastAPI Autoscaling
-# =============================================================================
-# HPA automatically scales the number of pods based on metrics like CPU/Memory
-#
-# HOW IT WORKS:
-# 1. HPA checks metrics every 15 seconds (default)
-# 2. Calculates: current_metric / target_metric = scale_factor
-# 3. If scale_factor > 1, adds more pods
-# 4. If scale_factor < 1, removes pods (gradually)
-#
-# EXAMPLE:
-# - Target CPU: 70%
-# - Current CPU: 140% (pod is overloaded!)
-# - Scale factor: 140/70 = 2 → Double the pods!
-#
-# PREREQUISITES:
-# - Metrics Server must be installed: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-# - Pods MUST have resource requests defined (we did this!)
-# =============================================================================
-
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -28,86 +7,49 @@ metadata:
     app: fastapi
     component: webapi
 spec:
-  # Which deployment to scale
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
     name: fastapi
-
-  # Scaling boundaries
-  minReplicas: 2   # Always keep at least 2 pods (high availability)
-  maxReplicas: 10  # Never exceed 10 pods (cost control)
-
-  # Scaling metrics - CPU and Memory
+  minReplicas: 2
+  maxReplicas: 10
   metrics:
-
-  # ===== CPU-BASED SCALING =====
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 70  # Scale up if average CPU > 70%
+        averageUtilization: 70
+        # Each pod requests 100m CPU.
+        # Scale up when average usage exceeds 70m per pod.
 
-    # What this means:
-    # - Each pod requests 200m CPU (from deployment)
-    # - If actual usage is 140m (70% of 200m), we're at target
-    # - If actual usage is 160m (80% of 200m), HPA adds more pods!
-
-  # ===== MEMORY-BASED SCALING =====
   - type: Resource
     resource:
       name: memory
       target:
         type: Utilization
-        averageUtilization: 80  # Scale up if average memory > 80%
+        averageUtilization: 80
+        # Each pod requests 128Mi memory.
+        # Scale up when average usage exceeds ~102Mi per pod.
 
-    # What this means:
-    # - Each pod requests 256Mi memory
-    # - If actual usage is 204Mi (80% of 256Mi), we're at target
-    # - If usage exceeds 80%, HPA scales up!
-
-  # ===== SCALING BEHAVIOR (Fine-tuned control) =====
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 60  # Wait 60s before scaling up again
+      stabilizationWindowSeconds: 60
       policies:
       - type: Percent
-        value: 50        # Can increase pods by 50% of current count
-        periodSeconds: 60  # Every 60 seconds
-      - type: Pods
-        value: 2         # Or add max 2 pods at a time
+        value: 50
         periodSeconds: 60
-      selectPolicy: Max  # Use whichever policy scales faster
-
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Max
     scaleDown:
-      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      stabilizationWindowSeconds: 300
       policies:
       - type: Percent
-        value: 50        # Can decrease pods by 50% of current count
+        value: 50
         periodSeconds: 60
       - type: Pods
-        value: 1         # Or remove max 1 pod at a time
+        value: 1
         periodSeconds: 60
-      selectPolicy: Min  # Use whichever policy scales slower (conservative)
-
-# =============================================================================
-# SCALING BEHAVIOR EXPLAINED:
-#
-# Why different scale-up and scale-down behaviors?
-# - Scale UP quickly: Users experiencing slowness, add pods fast!
-# - Scale DOWN slowly: Don't kill pods too quickly, traffic might spike again
-#
-# Stabilization window:
-# - Prevents "flapping" (rapid scale up/down cycles)
-# - HPA waits and observes before making another scaling decision
-#
-# Example scenario:
-# 1. Traffic spike → CPU hits 90%
-# 2. HPA scales from 2 → 4 pods (50% increase)
-# 3. Waits 60s (stabilization)
-# 4. Still at 85% CPU? Scale to 6 pods
-# 5. CPU drops to 50%
-# 6. Waits 5 minutes (conservative scale-down)
-# 7. Still low? Remove 1 pod
-# =============================================================================
+      selectPolicy: Min
