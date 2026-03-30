@@ -1,0 +1,148 @@
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # -------------------------------------------------------------------------
+      # 1. Checkout code
+      # -------------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------------------------
+      # 2. Set a short git SHA for image tagging
+      #    This gives every build a unique, traceable tag.
+      #    e.g. mibrahimbashir/fastapi-celery:a1b2c3d
+      # -------------------------------------------------------------------------
+      - name: Set image tag
+        id: vars
+        run: echo "sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      # -------------------------------------------------------------------------
+      # 3. Log in to Docker Hub
+      #    Uses DOCKER_USERNAME and DOCKER_PASSWORD secrets.
+      # -------------------------------------------------------------------------
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # -------------------------------------------------------------------------
+      # 4. Build and push FastAPI image
+      #    - Tagged with short git SHA (immutable, traceable)
+      #    - Also tagged as 'latest' (convenience alias)
+      # -------------------------------------------------------------------------
+      - name: Build and push FastAPI image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: DockerfileWebApi
+          push: true
+          tags: |
+            mibrahimbashir/fastapi-celery:${{ steps.vars.outputs.sha }}
+            mibrahimbashir/fastapi-celery:latest
+
+      # -------------------------------------------------------------------------
+      # 5. Build and push Celery worker image
+      #    Separate image because it has different deps (ffmpeg, opencv, etc.)
+      # -------------------------------------------------------------------------
+      - name: Build and push Celery image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: DockerfileCelery
+          push: true
+          tags: |
+            mibrahimbashir/celery-worker:${{ steps.vars.outputs.sha }}
+            mibrahimbashir/celery-worker:latest
+
+      # -------------------------------------------------------------------------
+      # 6. Write kubeconfig to a file so kubectl can reach the cluster
+      #    KUBECONFIG_BASE64 is the base64-encoded kubeconfig with the EC2 public
+      #    IP substituted in (see bootstrap summary for how to generate this).
+      # -------------------------------------------------------------------------
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_BASE64 }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      # -------------------------------------------------------------------------
+      # 7. Install kubectl on the runner
+      # -------------------------------------------------------------------------
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.3'  # Pin to match your k3s version
+
+      # -------------------------------------------------------------------------
+      # 8. Apply all manifests in order
+      #    The numeric prefixes (00-, 01-, ...) guarantee correct apply order.
+      #    --server-side uses server-side apply which handles large manifests
+      #    better and gives cleaner conflict resolution.
+      # -------------------------------------------------------------------------
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/00-namespace.yaml
+          kubectl apply -f k8s/01-configmap.yaml
+          kubectl apply -f k8s/02-redis-deployment.yaml
+          kubectl apply -f k8s/03-fastapi-deployment.yaml
+          kubectl apply -f k8s/04-celery-deployment.yaml
+          kubectl apply -f k8s/05-flower-deployment.yaml
+          kubectl apply -f k8s/06-persistent-volume.yaml
+          kubectl apply -f k8s/07-hpa-fastapi.yaml
+          kubectl apply -f k8s/08-hpa-celery.yaml
+          kubectl apply -f k8s/09-resource-quota.yaml
+
+      # -------------------------------------------------------------------------
+      # 9. Update the running deployments to use the new image tag
+      #    kubectl set image triggers a rolling update — zero downtime.
+      #    The format is: <container-name>=<new-image>
+      #    Container names must match what's in the deployment manifests.
+      # -------------------------------------------------------------------------
+      - name: Update FastAPI image
+        run: |
+          kubectl set image deployment/fastapi \
+            fastapi=mibrahimbashir/fastapi-celery:${{ steps.vars.outputs.sha }} \
+            -n async-tasks
+
+      - name: Update Celery worker image
+        run: |
+          kubectl set image deployment/celery-worker \
+            celery-worker=mibrahimbashir/celery-worker:${{ steps.vars.outputs.sha }} \
+            -n async-tasks
+
+      # -------------------------------------------------------------------------
+      # 10. Wait for rollouts to complete
+      #     This blocks the pipeline until all pods are healthy.
+      #     If rollout fails (bad image, crash loop), the pipeline fails here
+      #     and you get an immediate signal — before you'd notice in production.
+      #     Timeout of 5 minutes is generous; adjust based on your startup time.
+      # -------------------------------------------------------------------------
+      - name: Wait for FastAPI rollout
+        run: |
+          kubectl rollout status deployment/fastapi \
+            -n async-tasks \
+            --timeout=5m
+
+      - name: Wait for Celery rollout
+        run: |
+          kubectl rollout status deployment/celery-worker \
+            -n async-tasks \
+            --timeout=5m
+
+      # -------------------------------------------------------------------------
+      # 11. Print final pod status for visibility in CI logs
+      # -------------------------------------------------------------------------
+      - name: Print pod status
+        run: |
+          kubectl get pods -n async-tasks
+          kubectl get hpa -n async-tasks
