@@ -211,4 +211,10 @@ async def websocket_task_status(websocket: WebSocket, task_id: str):
     except WebSocketDisconnect:
         print(f"WebSocket disconnected for task: {task_id}")
 
+# Add this ABOVE the app.mount line
+@app.get("/health")
+def health():
+    return {"status": "ok", "message": "API is running"}
+
+# This must stay last
 app.mount("/", StaticFiles(directory="static"), name="static")

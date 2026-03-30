@@ -58,10 +58,9 @@ spec:
             memory: "256Mi"
             cpu: "200m"
 
-        # Health checks
         livenessProbe:
           httpGet:
-            path: /
+            path: /healthcheck   # Flower's built-in unauthenticated health endpoint
             port: 5555
           initialDelaySeconds: 60
           periodSeconds: 15
@@ -70,7 +69,7 @@ spec:
 
         readinessProbe:
           httpGet:
-            path: /
+            path: /healthcheck
             port: 5555
           initialDelaySeconds: 30
           periodSeconds: 10
